@@ -4,78 +4,134 @@ import Avatar from './Avatar';
 import { useProjectContext } from '../context/ProjectContext';
 
 const TaskDetailDrawer = ({ taskId, onClose }) => {
-  const { tasks, projects, currentUser, updateTaskStatus, addComment, editTask, deleteTask } = useProjectContext();
-  const [commentInput, setCommentInput] = useState('');
+  const {
+    tasks,
+    projects,
+    currentProject,
+    currentUser,
+    updateTaskStatus,
+    addComment,
+    editTask,
+    deleteTask
+  } = useProjectContext();
 
-  // Edit Mode state
+  const [commentInput, setCommentInput] = useState('');
+  const [isSubmittingComment, setIsSubmittingComment] = useState(false);
   const [isEditing, setIsEditing] = useState(false);
   const [editTitle, setEditTitle] = useState('');
-  const [editAssignee, setEditAssignee] = useState('');
   const [editDueDate, setEditDueDate] = useState('');
   const [permissionWarning, setPermissionWarning] = useState('');
+  const [actionLoading, setActionLoading] = useState(false);
 
-  const task = tasks.find(t => t.id === taskId);
+  // Find task by code or ID
+  const task = tasks.find(t => t.code === taskId || String(t.id) === String(taskId));
   if (!task) return null;
 
-  const project = projects.find(p => p.id === task.projectId) || {
-    title: 'Project',
-    code: 'PROJ',
-    owner: 'Williams',
-    members: [task.membername || currentUser.name]
-  };
+  const project =
+    currentProject ||
+    projects.find(p => p.code === task.project_code || p.id === task.project) || {
+      title: 'Project',
+      code: 'PROJ',
+      owner_email: ''
+    };
 
-  const isOwner = project.owner?.toLowerCase() === currentUser.name?.toLowerCase() || project.role === 'owner';
-  const isAssignee = task.membername?.toLowerCase() === currentUser.name?.toLowerCase();
-  const canModifyStatus = isOwner || isAssignee;
+  const isOwner =
+    project.owner_email &&
+    currentUser?.email &&
+    project.owner_email.toLowerCase() === currentUser.email.toLowerCase();
 
-  const handleStatusChange = (newStatus) => {
+  const isAssignee =
+    (task.assignee_email &&
+      currentUser?.email &&
+      task.assignee_email.toLowerCase() === currentUser.email.toLowerCase()) ||
+    (task.assignee_name &&
+      currentUser?.username &&
+      task.assignee_name.toLowerCase() === currentUser.username.toLowerCase());
+
+  // STRICT DOMAIN RULE: ONLY the assigned member can update task status
+  const canModifyStatus = isAssignee;
+
+  const handleStatusChange = async (newStatus) => {
     if (!canModifyStatus) {
-      setPermissionWarning(`Only ${task.membername || 'the assigned member'} or project owner can update this status.`);
-      setTimeout(() => setPermissionWarning(''), 3000);
+      const assigneeLabel = task.assignee_name || task.assignee_email || 'the assigned member';
+      setPermissionWarning(
+        `Permission denied: Only ${assigneeLabel} has permission to update this task's status.`
+      );
+      setTimeout(() => setPermissionWarning(''), 3500);
       return;
     }
-    updateTaskStatus(task.id, newStatus);
+
+    try {
+      setActionLoading(true);
+      await updateTaskStatus(project.code, task.code, newStatus);
+    } catch (err) {
+      console.error('Failed to update status:', err);
+    } finally {
+      setActionLoading(false);
+    }
   };
 
-  const handleCommentSubmit = (e) => {
+  const handleCommentSubmit = async (e) => {
     e.preventDefault();
     if (!commentInput.trim()) return;
-    addComment(task.id, commentInput);
-    setCommentInput('');
+
+    try {
+      setIsSubmittingComment(true);
+      await addComment(project.code, task.code, commentInput.trim());
+      setCommentInput('');
+    } catch (err) {
+      console.error('Failed to add comment:', err);
+    } finally {
+      setIsSubmittingComment(false);
+    }
   };
 
   const startEdit = () => {
     setEditTitle(task.title);
-    setEditAssignee(task.membername || '');
-    setEditDueDate(task.duedate || '');
+    setEditDueDate(task.due_date || '');
     setIsEditing(true);
   };
 
-  const saveEdit = (e) => {
+  const saveEdit = async (e) => {
     e.preventDefault();
     if (!editTitle.trim()) return;
 
-    editTask(task.id, {
-      title: editTitle.trim(),
-      membername: editAssignee || task.membername,
-      duedate: editDueDate || task.duedate
-      // Preserves current status!
-    });
-    setIsEditing(false);
+    try {
+      setActionLoading(true);
+      await editTask(project.code, task.code, {
+        title: editTitle.trim(),
+        due_date: editDueDate || null
+      });
+      setIsEditing(false);
+    } catch (err) {
+      console.error('Failed to edit task:', err);
+    } finally {
+      setActionLoading(false);
+    }
   };
 
-  const handleDelete = () => {
+  const handleDelete = async () => {
     if (window.confirm(`Are you sure you want to delete task "${task.title}"?`)) {
-      deleteTask(task.id);
-      onClose();
+      try {
+        setActionLoading(true);
+        await deleteTask(project.code, task.code);
+        onClose();
+      } catch (err) {
+        console.error('Failed to delete task:', err);
+      } finally {
+        setActionLoading(false);
+      }
     }
   };
 
   const statuses = [
     { id: 'TODO', label: 'TODO' },
-    { id: 'IN PROGRESS', label: 'IN PROGRESS' },
+    { id: 'IN_PROGRESS', label: 'IN PROGRESS' },
     { id: 'DONE', label: 'DONE' }
   ];
+
+  const assigneeDisplayName =
+    task.assignee_name || (task.assignee_email ? task.assignee_email.split('@')[0] : 'Unassigned');
 
   return (
     <div className="fixed inset-0 z-50 flex justify-end bg-black/60 backdrop-blur-xs transition-opacity duration-200">
@@ -83,13 +139,13 @@ const TaskDetailDrawer = ({ taskId, onClose }) => {
       <div className="flex-1" onClick={onClose} />
 
       {/* Drawer content */}
-      <div className="w-full max-w-lg bg-[#0e1915] border-l border-[#192d26] h-full flex flex-col justify-between shadow-2xl overflow-y-auto animate-in slide-in-from-right duration-200">
-        <div className="p-6 space-y-6">
+      <div className="w-full max-w-full sm:max-w-lg bg-[#0e1915] sm:border-l border-[#192d26] h-full flex flex-col justify-between shadow-2xl overflow-y-auto animate-in slide-in-from-right duration-200">
+        <div className="p-4 sm:p-6 space-y-5 sm:space-y-6">
           {/* Header */}
-          <div className="flex items-start justify-between gap-4">
+          <div className="flex items-start justify-between gap-3">
             <div className="flex-1">
               <span className="text-xs font-mono tracking-wider text-[#6f887f] uppercase">
-                {project.code || 'MSL-01'} / {task.code || 'TASK'}
+                {project.code} / {task.code}
               </span>
 
               {isEditing ? (
@@ -99,227 +155,214 @@ const TaskDetailDrawer = ({ taskId, onClose }) => {
                     maxLength={150}
                     value={editTitle}
                     onChange={(e) => setEditTitle(e.target.value)}
-                    className="w-full bg-[#12211c] border border-[#10b981] rounded-lg px-3 py-1.5 text-sm text-white outline-none"
+                    className="w-full bg-[#13241e] border border-[#203c31] rounded-lg px-3 py-1.5 text-sm text-white focus:border-[#10b981] outline-none"
                   />
                   <div className="flex items-center gap-2">
+                    <input
+                      type="date"
+                      value={editDueDate}
+                      onChange={(e) => setEditDueDate(e.target.value)}
+                      className="bg-[#13241e] border border-[#203c31] rounded-lg px-2.5 py-1 text-xs text-white outline-none"
+                    />
                     <button
-                      type="button"
                       onClick={saveEdit}
-                      className="px-3 py-1 bg-[#10b981] hover:bg-[#059669] text-black font-semibold text-xs rounded-md transition-all flex items-center gap-1"
+                      disabled={actionLoading}
+                      className="px-3 py-1 bg-[#10b981] text-black text-xs font-semibold rounded-lg hover:bg-[#059669]"
                     >
-                      <Check className="w-3.5 h-3.5" /> Save
+                      Save
                     </button>
                     <button
-                      type="button"
                       onClick={() => setIsEditing(false)}
-                      className="px-3 py-1 text-xs text-[#8ca398] hover:text-white rounded-md hover:bg-[#162721]"
+                      className="px-3 py-1 text-xs text-[#8ca398] hover:text-white"
                     >
                       Cancel
                     </button>
                   </div>
                 </div>
               ) : (
-                <h2 className="text-xl font-bold text-white mt-1 leading-snug">
+                <h2 className="text-xl font-bold text-white tracking-tight mt-1 leading-snug">
                   {task.title}
                 </h2>
               )}
 
-              <p className="text-xs text-[#8ca398] mt-0.5">
-                in <span className="text-white font-medium">{project.title}</span>
-              </p>
+              {task.description && (
+                <p className="text-xs text-[#8da59a] mt-2 leading-relaxed whitespace-pre-wrap">
+                  {task.description}
+                </p>
+              )}
             </div>
 
-            {/* Header Action Buttons */}
             <div className="flex items-center gap-1 shrink-0">
+              {/* Owner actions: Edit and Delete */}
               {isOwner && !isEditing && (
                 <>
                   <button
                     onClick={startEdit}
-                    title="Edit task details"
-                    className="p-1.5 rounded-lg text-[#748e84] hover:text-white hover:bg-[#162721] transition-colors"
+                    title="Edit task"
+                    className="p-1.5 rounded-lg text-[#6e857c] hover:text-white hover:bg-[#162721] transition-colors"
                   >
                     <Edit3 className="w-4 h-4" />
                   </button>
                   <button
                     onClick={handleDelete}
                     title="Delete task"
-                    className="p-1.5 rounded-lg text-rose-400 hover:text-rose-300 hover:bg-rose-950/30 transition-colors"
+                    className="p-1.5 rounded-lg text-[#6e857c] hover:text-red-400 hover:bg-[#201515] transition-colors"
                   >
                     <Trash2 className="w-4 h-4" />
                   </button>
                 </>
               )}
+
               <button
                 onClick={onClose}
-                className="p-1.5 rounded-lg text-[#748e84] hover:text-white hover:bg-[#162721] transition-colors"
+                className="p-1.5 rounded-lg text-[#6e857c] hover:text-white hover:bg-[#162721] transition-colors"
               >
                 <X className="w-5 h-5" />
               </button>
             </div>
           </div>
 
-          {/* Warning Banner */}
-          {permissionWarning && (
-            <div className="flex items-center gap-2 p-2.5 rounded-lg bg-amber-950/40 border border-amber-700/50 text-xs text-amber-300 animate-in fade-in">
-              <AlertCircle className="w-4 h-4 shrink-0" />
-              <span>{permissionWarning}</span>
-            </div>
-          )}
-
-          <hr className="border-[#172b24]" />
-
-          {/* Status Switcher Buttons */}
+          {/* Status Selector Section */}
           <div>
-            <div className="flex items-center justify-between mb-2">
-              <label className="text-xs font-medium text-[#7d988e]">
-                Status
-              </label>
-              {!canModifyStatus && (
-                <span className="text-[11px] text-[#5e776e]">
-                  (Assigned to {task.membername})
-                </span>
-              )}
-            </div>
-            <div className="grid grid-cols-3 gap-2">
+            <label className="text-xs font-medium text-[#7d968b] block mb-2">
+              Status Progression
+            </label>
+            <div className="grid grid-cols-3 gap-2 bg-[#0a1410] border border-[#162721] p-1.5 rounded-xl">
               {statuses.map(s => {
-                const isActive = task.status?.toUpperCase() === s.id;
-                let activeClasses = 'bg-[#152721] text-[#93ab9f] border-[#223d33] hover:border-[#2f5346]';
-                
-                if (isActive) {
-                  if (s.id === 'TODO') {
-                    activeClasses = 'bg-[#1c2c26] text-white border-slate-400 font-semibold shadow-xs';
-                  } else if (s.id === 'IN PROGRESS') {
-                    activeClasses = 'bg-[#f59e0b]/15 text-[#fbbf24] border-[#f59e0b] font-semibold shadow-xs';
-                  } else if (s.id === 'DONE') {
-                    activeClasses = 'bg-[#10b981]/15 text-[#34d399] border-[#10b981] font-semibold shadow-xs';
-                  }
-                }
-
+                const isActive = task.status === s.id;
                 return (
                   <button
                     key={s.id}
-                    type="button"
                     onClick={() => handleStatusChange(s.id)}
-                    className={`py-2 px-3 text-xs font-mono rounded-lg border transition-all duration-150 flex items-center justify-center gap-1.5 ${activeClasses}`}
+                    disabled={actionLoading}
+                    className={`py-2 px-3 rounded-lg text-xs font-mono font-semibold transition-all flex items-center justify-center gap-1.5 ${
+                      isActive
+                        ? s.id === 'DONE'
+                          ? 'bg-[#10b981] text-black shadow-md'
+                          : s.id === 'IN_PROGRESS'
+                          ? 'bg-amber-400 text-black shadow-md'
+                          : 'bg-slate-200 text-black shadow-md'
+                        : 'text-[#6e857c] hover:text-white hover:bg-[#13241e]'
+                    }`}
                   >
-                    {s.label}
+                    {isActive && <Check className="w-3.5 h-3.5 stroke-[3]" />}
+                    <span>{s.label}</span>
                   </button>
                 );
               })}
             </div>
-          </div>
 
-          {/* Assignee Section */}
-          <div>
-            <label className="text-xs font-medium text-[#7d988e] block mb-2">
-              Assignee
-            </label>
-            {isEditing ? (
-              <select
-                value={editAssignee}
-                onChange={(e) => setEditAssignee(e.target.value)}
-                className="w-full bg-[#12211c] border border-[#10b981] rounded-lg px-3 py-2 text-xs text-white outline-none"
-              >
-                {project.members?.map((m, idx) => (
-                  <option key={idx} value={m}>
-                    {m}
-                  </option>
-                ))}
-              </select>
-            ) : (
-              <div className="flex flex-wrap gap-2">
-                {task.membername ? (
-                  <div className="flex items-center gap-2.5 px-3 py-1.5 rounded-lg bg-[#14241e] border border-[#223d33] text-sm text-white font-medium shadow-xs">
-                    <Avatar name={task.membername} size="sm" />
-                    <span>{task.membername}</span>
-                  </div>
-                ) : (
-                  <div className="text-xs text-[#718c81] italic">No assignee assigned</div>
-                )}
+            {/* Permission feedback warning banner */}
+            {permissionWarning && (
+              <div className="mt-2.5 p-3 rounded-xl bg-amber-950/40 border border-amber-800/60 flex items-center gap-2.5 text-xs text-amber-200 animate-in fade-in duration-200">
+                <AlertCircle className="w-4 h-4 text-amber-400 shrink-0" />
+                <span>{permissionWarning}</span>
               </div>
             )}
           </div>
 
-          {/* Metadata: Due date & Created by */}
-          <div className="grid grid-cols-2 gap-4 py-2 border-y border-[#172b24]">
-            <div>
-              <span className="text-xs text-[#7d988e] block mb-1 flex items-center gap-1">
-                <Calendar className="w-3.5 h-3.5" /> Due
+          {/* Meta Details Grid */}
+          <div className="grid grid-cols-2 gap-4 bg-[#0a1310] border border-[#152721] rounded-2xl p-4">
+            {/* Assignee */}
+            <div className="space-y-1">
+              <span className="text-[11px] font-mono text-[#6e857c] uppercase flex items-center gap-1">
+                <UserCheck className="w-3.5 h-3.5" /> Assignee
               </span>
-              {isEditing ? (
-                <input
-                  type="date"
-                  value={editDueDate}
-                  onChange={(e) => setEditDueDate(e.target.value)}
-                  className="bg-[#12211c] border border-[#10b981] rounded-lg px-2 py-1 text-xs text-white outline-none [color-scheme:dark]"
-                />
-              ) : (
-                <span className="text-sm font-semibold text-white">
-                  {task.duedate || 'Not set'}
-                </span>
-              )}
+              <div className="flex items-center gap-2 pt-1">
+                <Avatar name={assigneeDisplayName} size="sm" />
+                <div className="flex flex-col min-w-0">
+                  <span className="text-xs font-medium text-white truncate">
+                    {assigneeDisplayName}
+                  </span>
+                  {task.assignee_email && (
+                    <span className="text-[10px] text-[#6e857c] truncate">
+                      {task.assignee_email}
+                    </span>
+                  )}
+                </div>
+              </div>
             </div>
 
-            <div>
-              <span className="text-xs text-[#7d988e] block mb-1 flex items-center gap-1">
-                <UserCheck className="w-3.5 h-3.5" /> Created by
+            {/* Due Date */}
+            <div className="space-y-1">
+              <span className="text-[11px] font-mono text-[#6e857c] uppercase flex items-center gap-1">
+                <Calendar className="w-3.5 h-3.5" /> Due Date
               </span>
-              <div className="flex items-center gap-1.5">
-                <Avatar name={task.createdBy || currentUser.name} size="xs" />
-                <span className="text-sm font-medium text-white">
-                  {task.createdBy || currentUser.name}
+              <div className="pt-1">
+                <span className="text-xs font-medium text-[#cbe0d6]">
+                  {task.due_date || 'No due date set'}
                 </span>
               </div>
             </div>
           </div>
 
-          {/* Discussion Section */}
-          <div className="space-y-4 pt-1">
-            <div className="flex items-center justify-between">
-              <h3 className="text-sm font-semibold text-white">
-                Discussion · <span>{task.comments?.length || 0}</span>
-              </h3>
-            </div>
+          {/* Discussion & Activity Thread */}
+          <div className="space-y-3 pt-2">
+            <h4 className="text-xs font-mono font-semibold uppercase tracking-wider text-[#8ca398]">
+              Discussion ({task.comments?.length || 0})
+            </h4>
 
-            {/* Comment Stream */}
-            <div className="space-y-3 max-h-[250px] overflow-y-auto pr-1">
-              {task.comments && task.comments.length > 0 ? (
-                task.comments.map(c => (
-                  <div key={c.id} className="space-y-1.5">
-                    <div className="flex items-center gap-2">
-                      <Avatar name={c.author} size="xs" />
-                      <span className="text-xs font-semibold text-white">{c.author}</span>
-                      <span className="text-[11px] text-[#6e857c]">{c.time}</span>
-                    </div>
-                    <div className="ml-6 p-3 rounded-lg bg-[#12211b] border border-[#1b2f28] text-xs text-[#d1d5db] leading-relaxed">
-                      {c.text}
-                    </div>
-                  </div>
-                ))
-              ) : (
-                <p className="text-xs text-[#6e857c] italic py-2">
-                  No comments yet. Start the conversation below.
+            {/* Comments List */}
+            <div className="space-y-3 max-h-60 overflow-y-auto pr-1">
+              {(!task.comments || task.comments.length === 0) && (
+                <p className="text-xs text-[#587369] italic py-2">
+                  No discussion comments yet. Start the conversation below.
                 </p>
               )}
+
+              {task.comments?.map((comment, idx) => {
+                const authorDisplay =
+                  comment.author_name ||
+                  (comment.author_details ? comment.author_details.username : 'Member');
+                const timeDisplay = comment.created_at
+                  ? new Date(comment.created_at).toLocaleTimeString([], {
+                      hour: '2-digit',
+                      minute: '2-digit',
+                      month: 'short',
+                      day: 'numeric'
+                    })
+                  : '';
+
+                return (
+                  <div
+                    key={comment.id || idx}
+                    className="bg-[#0b1612] border border-[#162721] rounded-xl p-3 space-y-1.5"
+                  >
+                    <div className="flex items-center justify-between">
+                      <div className="flex items-center gap-2">
+                        <Avatar name={authorDisplay} size="xs" />
+                        <span className="text-xs font-semibold text-white">
+                          {authorDisplay}
+                        </span>
+                      </div>
+                      <span className="text-[10px] text-[#5e776d] font-mono">
+                        {timeDisplay}
+                      </span>
+                    </div>
+                    <p className="text-xs text-[#b8cfc5] pl-6 leading-relaxed">
+                      {comment.comment || comment.text}
+                    </p>
+                  </div>
+                );
+              })}
             </div>
           </div>
         </div>
 
-        {/* Comment Composer */}
-        <div className="p-4 border-t border-[#172b24] bg-[#0b1511]">
-          <form onSubmit={handleCommentSubmit} className="flex items-center gap-3">
-            <Avatar name={currentUser.name} size="sm" />
+        {/* Bottom Comment Input */}
+        <div className="p-4 border-t border-[#172b24] bg-[#09110e]">
+          <form onSubmit={handleCommentSubmit} className="flex items-center gap-2">
             <input
               type="text"
               value={commentInput}
               onChange={(e) => setCommentInput(e.target.value)}
               placeholder="Write a comment..."
-              className="flex-1 bg-[#12211c] border border-[#1f372f] focus:border-[#10b981] focus:ring-1 focus:ring-[#10b981] rounded-lg px-3 py-2 text-xs text-white placeholder-[#587369] outline-none transition-all"
+              className="flex-1 bg-[#12211c] border border-[#1e382f] focus:border-[#10b981] rounded-xl px-3.5 py-2.5 text-xs text-white placeholder-[#587369] outline-none transition-all"
             />
             <button
               type="submit"
-              disabled={!commentInput.trim()}
-              className="p-2 rounded-lg bg-[#10b981] hover:bg-[#059669] disabled:opacity-40 disabled:hover:bg-[#10b981] text-black font-semibold transition-all shadow-xs"
+              disabled={isSubmittingComment || !commentInput.trim()}
+              className="p-2.5 bg-[#10b981] hover:bg-[#059669] disabled:opacity-40 text-black rounded-xl transition-all shrink-0 cursor-pointer"
             >
               <Send className="w-4 h-4" />
             </button>

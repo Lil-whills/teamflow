@@ -2,23 +2,37 @@ import React, { useState } from 'react';
 import { X, UserPlus, Link2, Check, Copy } from 'lucide-react';
 import { useProjectContext } from '../context/ProjectContext';
 
-const InviteMemberModal = ({ isOpen, onClose, projectId }) => {
-  const { addMemberToProject, projects } = useProjectContext();
+const InviteMemberModal = ({ isOpen, onClose, projectCode }) => {
+  const { inviteMemberToProject } = useProjectContext();
   const [email, setEmail] = useState('');
   const [copied, setCopied] = useState(false);
+  const [isSubmitting, setIsSubmitting] = useState(false);
+  const [errorMsg, setErrorMsg] = useState('');
+  const [successMsg, setSuccessMsg] = useState('');
 
   if (!isOpen) return null;
 
-  const currentProject = projects.find(p => p.id === projectId) || { code: 'PRJ' };
-  const shareableLink = `${window.location.origin}/join/${currentProject.code?.toLowerCase() || 'invite'}`;
+  const shareableLink = `${window.location.origin}/login`;
 
-  const handleSubmit = (e) => {
+  const handleSubmit = async (e) => {
     e.preventDefault();
     if (!email.trim()) return;
 
-    addMemberToProject(projectId, email.trim());
-    setEmail('');
-    onClose();
+    try {
+      setIsSubmitting(true);
+      setErrorMsg('');
+      const res = await inviteMemberToProject(projectCode, email.trim());
+      setSuccessMsg(res.message || 'Invitation sent successfully!');
+      setTimeout(() => {
+        setEmail('');
+        setSuccessMsg('');
+        onClose();
+      }, 1500);
+    } catch (err) {
+      setErrorMsg(err.response?.data?.email || err.response?.data?.error || 'Failed to invite member.');
+    } finally {
+      setIsSubmitting(false);
+    }
   };
 
   const handleCopyLink = () => {
@@ -28,8 +42,8 @@ const InviteMemberModal = ({ isOpen, onClose, projectId }) => {
   };
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/75 backdrop-blur-xs p-4">
-      <div className="bg-[#0e1915] border border-[#1b2f28] rounded-2xl w-full max-w-sm p-6 shadow-2xl space-y-5 animate-in zoom-in-95 duration-150">
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/75 backdrop-blur-xs p-3 sm:p-4">
+      <div className="bg-[#0e1915] border border-[#1b2f28] rounded-2xl w-full max-w-sm p-4 sm:p-6 shadow-2xl space-y-4 sm:space-y-5 animate-in zoom-in-95 duration-150 max-h-[90vh] overflow-y-auto">
         {/* Header */}
         <div className="flex items-center justify-between">
           <div className="flex items-center gap-2 text-white">
@@ -44,6 +58,18 @@ const InviteMemberModal = ({ isOpen, onClose, projectId }) => {
           </button>
         </div>
 
+        {errorMsg && (
+          <div className="p-3 bg-red-950/40 border border-red-800/60 rounded-xl text-red-300 text-xs">
+            {errorMsg}
+          </div>
+        )}
+
+        {successMsg && (
+          <div className="p-3 bg-emerald-950/40 border border-emerald-800/60 rounded-xl text-emerald-300 text-xs">
+            {successMsg}
+          </div>
+        )}
+
         {/* Form */}
         <form onSubmit={handleSubmit} className="space-y-4">
           <div>
@@ -55,11 +81,11 @@ const InviteMemberModal = ({ isOpen, onClose, projectId }) => {
               required
               value={email}
               onChange={(e) => setEmail(e.target.value)}
-              placeholder="e.g. crispen@teamflow.app"
+              placeholder="e.g. teammate@company.com"
               className="w-full bg-[#12211c] border border-[#1f372f] focus:border-[#10b981] rounded-xl px-3.5 py-2.5 text-sm text-white placeholder-[#587369] outline-none transition-all"
             />
             <p className="text-[11px] text-[#5d776d] mt-1">
-              Invitees can be assigned to tasks before or after they sign up.
+              If already registered, they are added immediately. Otherwise, a pending invitation is sent.
             </p>
           </div>
 
@@ -73,9 +99,10 @@ const InviteMemberModal = ({ isOpen, onClose, projectId }) => {
             </button>
             <button
               type="submit"
-              className="px-4 py-2 text-xs font-semibold bg-[#10b981] hover:bg-[#059669] text-black rounded-xl transition-all shadow-md active:scale-[0.98]"
+              disabled={isSubmitting}
+              className="px-4 py-2 text-xs font-semibold bg-[#10b981] hover:bg-[#059669] disabled:opacity-50 text-black rounded-xl transition-all shadow-md active:scale-[0.98]"
             >
-              Send Invite
+              {isSubmitting ? 'Sending...' : 'Send Invite'}
             </button>
           </div>
         </form>

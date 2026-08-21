@@ -1,8 +1,10 @@
 from rest_framework import permissions
 
 class IsProjectOwner(permissions.BasePermission):
+    """
+    Allows access ONLY to the Project Owner.
+    """
     def has_object_permission(self, request, view, obj):
-        # Determine the project instance from obj (whether obj is Project, Task, or Comment)
         project = obj if hasattr(obj, 'owner') else getattr(obj, 'project', None)
         if project is None and hasattr(obj, 'task'):
             project = obj.task.project
@@ -12,7 +14,7 @@ class IsProjectOwner(permissions.BasePermission):
 
 class IsProjectMember(permissions.BasePermission):
     """
-    Permission check: User must be an owner OR an invited member of the project to view/collaborate.
+    Allows view/collaboration access to Owner OR invited Project Members.
     """
     def has_object_permission(self, request, view, obj):
         project = obj if hasattr(obj, 'owner') else getattr(obj, 'project', None)
@@ -22,38 +24,49 @@ class IsProjectMember(permissions.BasePermission):
         if not project:
             return False
 
-        # Owner is always allowed
         if project.owner == request.user:
             return True
 
-        # Check if user is in project memberships
         return project.memberships.filter(member=request.user).exists()
 
 
-class IsAssigneeOrProjectOwner(permissions.BasePermission):
+class IsAssigneeForStatus_OwnerForEdits(permissions.BasePermission):
     """
-    Permission check for Tasks:
-    - Safe methods (GET) allowed for any project member.
-    - Status updates / edits allowed for the assigned user OR the project owner.
+    Strict Task Permissions:
+    - View (GET): Project Owner and all Project Members.
+    - Status changes (TODO -> IN_PROGRESS -> DONE): ONLY the assigned user.
+    - Editing / Deleting task metadata: ONLY the Project Owner.
     """
     def has_object_permission(self, request, view, obj):
+        user = request.user
         project = obj.project
-        is_owner = (project.owner == request.user)
-        is_assignee = (obj.assignee == request.user)
+        is_owner = (project.owner == user)
+        is_assignee = (
+            (obj.assignee == user) or
+            (obj.assignee_email and user.email and obj.assignee_email.strip().lower() == user.email.strip().lower())
+        )
+        is_member = project.memberships.filter(member=user).exists()
 
-        # Read permissions allowed for all project members
+        # 1. Read (GET): Allowed for any project member, owner, or assignee
         if request.method in permissions.SAFE_METHODS:
-            return is_owner or is_assignee or project.memberships.filter(member=request.user).exists()
+            return is_owner or is_member or is_assignee
 
-        # Write permissions (PATCH/PUT/DELETE) restricted to assignee or owner
+        # 2. Delete: ONLY the project owner can delete tasks
+        if request.method == 'DELETE':
+            return is_owner
+
+        # 3. Status updates: If updating status, ONLY the assigned member is allowed
+        if 'status' in request.data:
+            if not is_assignee:
+                return False
+
+        # 4. Other metadata edits (title, due date): Owner or Assignee
         return is_owner or is_assignee
 
 
 class IsCommentAuthorOrReadOnly(permissions.BasePermission):
     """
-    Permission check for Comments:
-    - Safe methods (GET) allowed for project members.
-    - Delete/Edit allowed ONLY for the author of the comment.
+    Delete/Edit comment allowed ONLY for the author of the comment.
     """
     def has_object_permission(self, request, view, obj):
         if request.method in permissions.SAFE_METHODS:

@@ -7,36 +7,45 @@ const NewProjectModal = ({ isOpen, onClose }) => {
   const [title, setTitle] = useState('');
   const [emailsInput, setEmailsInput] = useState('');
   const [description, setDescription] = useState('');
+  const [isSubmitting, setIsSubmitting] = useState(false);
+  const [errorMsg, setErrorMsg] = useState('');
 
   if (!isOpen) return null;
 
   const previewCode = generateProjectCode(title, projects);
 
-  const handleSubmit = (e) => {
+  const handleSubmit = async (e) => {
     e.preventDefault();
     if (!title.trim()) return;
 
     const memberEmails = emailsInput
       .split(',')
-      .map(e => e.trim())
-      .filter(e => e.length > 0);
+      .map(e => e.trim().toLowerCase())
+      .filter(e => e.length > 0 && e.includes('@'));
 
-    addProject({
-      title: title.trim(),
-      code: previewCode,
-      members: memberEmails,
-      description: description.trim()
-    });
+    try {
+      setIsSubmitting(true);
+      setErrorMsg('');
+      await addProject({
+        title: title.trim(),
+        description: description.trim(),
+        invite_emails: memberEmails
+      });
 
-    setTitle('');
-    setEmailsInput('');
-    setDescription('');
-    onClose();
+      setTitle('');
+      setEmailsInput('');
+      setDescription('');
+      onClose();
+    } catch (err) {
+      setErrorMsg(err.response?.data?.title || err.response?.data?.message || 'Failed to create project.');
+    } finally {
+      setIsSubmitting(false);
+    }
   };
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/75 backdrop-blur-xs p-4">
-      <div className="bg-[#0e1915] border border-[#1b2f28] rounded-2xl w-full max-w-md p-6 shadow-2xl space-y-5 animate-in zoom-in-95 duration-150">
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/75 backdrop-blur-xs p-3 sm:p-4">
+      <div className="bg-[#0e1915] border border-[#1b2f28] rounded-2xl w-full max-w-md p-4 sm:p-6 shadow-2xl space-y-4 sm:space-y-5 animate-in zoom-in-95 duration-150 max-h-[90vh] overflow-y-auto">
         {/* Modal Header */}
         <div className="flex items-center justify-between">
           <div className="flex items-center gap-2 text-white">
@@ -50,6 +59,12 @@ const NewProjectModal = ({ isOpen, onClose }) => {
             <X className="w-5 h-5" />
           </button>
         </div>
+
+        {errorMsg && (
+          <div className="p-3 bg-red-950/40 border border-red-800/60 rounded-xl text-red-300 text-xs">
+            {errorMsg}
+          </div>
+        )}
 
         <form onSubmit={handleSubmit} className="space-y-4">
           {/* Project Title with character limit */}
@@ -93,7 +108,7 @@ const NewProjectModal = ({ isOpen, onClose }) => {
               type="text"
               value={emailsInput}
               onChange={(e) => setEmailsInput(e.target.value)}
-              placeholder="e.g. alice@teamflow.app, bob@teamflow.app"
+              placeholder="e.g. alice@company.com, bob@company.com"
               className="w-full bg-[#12211c] border border-[#1f372f] focus:border-[#10b981] rounded-xl px-3.5 py-2.5 text-sm text-white placeholder-[#587369] outline-none transition-all"
             />
             <p className="text-[11px] text-[#5d776d] mt-1">
@@ -127,9 +142,10 @@ const NewProjectModal = ({ isOpen, onClose }) => {
             </button>
             <button
               type="submit"
-              className="px-4 py-2.5 text-xs font-semibold bg-[#10b981] hover:bg-[#059669] text-black rounded-xl transition-all shadow-md active:scale-[0.98]"
+              disabled={isSubmitting}
+              className="px-4 py-2.5 text-xs font-semibold bg-[#10b981] hover:bg-[#059669] disabled:opacity-50 text-black rounded-xl transition-all shadow-md active:scale-[0.98]"
             >
-              Create Project
+              {isSubmitting ? 'Creating...' : 'Create Project'}
             </button>
           </div>
         </form>

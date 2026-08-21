@@ -57,6 +57,21 @@ class TaskSerializer(serializers.ModelSerializer):
                     "assignee_email": f"'{clean_email}' has not been invited to project '{project.title}'. Please invite them first."
                 })
 
+        # 3. Status progression check: ONLY the assigned member can change the status
+        new_status = attrs.get('status')
+        request = self.context.get('request')
+        if self.instance and new_status and new_status != self.instance.status and request:
+            user = request.user
+            user_email = user.email.strip().lower() if user.email else ''
+            task_assignee_email = self.instance.assignee_email.strip().lower() if self.instance.assignee_email else ''
+            is_assignee = (self.instance.assignee == user) or (task_assignee_email and user_email and task_assignee_email == user_email)
+
+            if not is_assignee:
+                assignee_label = self.instance.assignee.username if self.instance.assignee else (self.instance.assignee_email or 'the assigned member')
+                raise serializers.ValidationError({
+                    "status": f"Permission denied. Only {assignee_label} can update this task's status."
+                })
+
         return attrs
 
 

@@ -15,7 +15,7 @@ from .serializers import (
 from .permissions import (
     IsProjectOwner,
     IsProjectMember,
-    IsAssigneeOrProjectOwner,
+    IsAssigneeForStatus_OwnerForEdits,
     IsCommentAuthorOrReadOnly
 )
 
@@ -133,12 +133,14 @@ class ListCreateTaskAPIView(generics.ListCreateAPIView):
 
     def perform_create(self, serializer):
         project = self.get_project()
+        if project.owner != self.request.user:
+            self.permission_denied(self.request, message="Only the project owner can create tasks in this project.")
         serializer.save(project=project, created_by=self.request.user)
 
 
 class RetrieveUpdateDestroyTaskAPIView(generics.RetrieveUpdateDestroyAPIView):
     serializer_class = TaskSerializer
-    permission_classes = [permissions.IsAuthenticated, IsAssigneeOrProjectOwner]
+    permission_classes = [permissions.IsAuthenticated, IsAssigneeForStatus_OwnerForEdits]
     lookup_field = 'code'
     lookup_url_kwarg = 'pk'
 

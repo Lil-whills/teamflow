@@ -2,10 +2,11 @@ import React, { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useProjectContext } from '../context/ProjectContext';
 import { AlertCircle } from 'lucide-react';
+import {login, register, logout} from '../api/client';
 
 const Authentication = () => {
   const navigate = useNavigate();
-  const { currentUser } = useProjectContext();
+  
 
   const [isSignUp, setIsSignUp] = useState(false);
   const [username, setUsername] = useState('');
@@ -13,16 +14,19 @@ const Authentication = () => {
   const [password, setPassword] = useState('');
   const [confirmPassword, setConfirmPassword] = useState('');
   const [errorMessage, setErrorMessage] = useState('');
+  const [loading, setLoading] = useState(false);
 
   const handleTabSwitch = (signUpMode) => {
     setIsSignUp(signUpMode);
     setErrorMessage('');
   };
 
-  const handleSubmit = (e) => {
+  const { setCurrentUser } = useProjectContext();
+
+  const handleSubmit = async (e) => {
     e.preventDefault();
     setErrorMessage('');
-
+  
     // Username length validation
     const trimmedUsername = username.trim();
     if (trimmedUsername.length < 3) {
@@ -49,8 +53,32 @@ const Authentication = () => {
       }
     }
 
-    // Mock authentication success -> redirect to projects dashboard
-    navigate('/projects');
+    try{
+      setLoading(true);
+      let data;
+
+      if (isSignUp) {
+        data = await register(username, email, password, confirmPassword);
+      } else {
+        data = await login(username, password);
+      }
+
+      localStorage.setItem('token', data.token);
+      localStorage.setItem('user', JSON.stringify(data.user));
+      setCurrentUser(data.user);
+      navigate('/projects');
+    } catch (err) {
+        const serverMessage = err.response?.data?.message;
+          if (Array.isArray(serverMessage)) {
+            setErrorMessage(serverMessage.join(' '));
+          } else if (typeof serverMessage === 'string') {
+            setErrorMessage(serverMessage);
+          } else {
+            setErrorMessage('Authentication failed. Please check your credentials.');
+          }
+      } finally {
+        setLoading(false);
+      }
   };
 
   return (
@@ -178,9 +206,10 @@ const Authentication = () => {
           {/* Submit Button */}
           <button
             type="submit"
-            className="w-full mt-2 py-3 px-4 rounded-xl bg-[#142620] hover:bg-[#1a332a] border border-[#213f34] hover:border-[#10b981]/50 text-white font-semibold text-sm transition-all shadow-md active:scale-[0.99]"
+            disabled={loading}
+            className="w-full mt-2 py-3 px-4 rounded-xl bg-[#10b981] hover:bg-[#059669] disabled:opacity-50 text-black font-semibold text-sm transition-all shadow-md active:scale-[0.99] flex items-center justify-center gap-2"
           >
-            {isSignUp ? 'Create account' : 'Sign in'}
+            {loading ? 'Please wait...' : (isSignUp ? 'Create account' : 'Sign in')}
           </button>
         </form>
 

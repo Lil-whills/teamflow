@@ -32,12 +32,12 @@ const AppContent = () => {
   }
 
   return (
-    <div className="flex min-h-screen bg-[#0c1512] text-[#e2e8f0] font-sans antialiased">
-      {/* Left Sidebar */}
+    <div className="flex flex-col md:flex-row min-h-screen bg-[#0c1512] text-[#e2e8f0] font-sans antialiased overflow-x-hidden">
+      {/* Left Sidebar (Desktop) / Top Navbar (Mobile) */}
       <Sidebar />
 
       {/* Main Content Area */}
-      <main className="flex-1 min-w-0 overflow-y-auto max-h-screen">
+      <main className="flex-1 min-w-0 overflow-y-auto max-w-full">
         <Routes>
           <Route path="/projects" element={<Projects />} />
           <Route path="/project/:id" element={<ProjectDetail />} />

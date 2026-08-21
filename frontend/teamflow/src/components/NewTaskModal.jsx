@@ -1,39 +1,70 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { X, PlusCircle, Calendar, UserCheck } from 'lucide-react';
 import { useProjectContext } from '../context/ProjectContext';
 
-const NewTaskModal = ({ isOpen, onClose, projectId }) => {
-  const { addTask, projects, currentUser } = useProjectContext();
+const NewTaskModal = ({ isOpen, onClose, projectCode }) => {
+  const { addTask, getAssignees } = useProjectContext();
   const [title, setTitle] = useState('');
-  const [membername, setMembername] = useState('');
-  const [duedate, setDuedate] = useState('');
+  const [description, setDescription] = useState('');
+  const [assigneeEmail, setAssigneeEmail] = useState('');
+  const [dueDate, setDueDate] = useState('');
+  const [assigneesList, setAssigneesList] = useState([]);
+  const [loadingAssignees, setLoadingAssignees] = useState(false);
+  const [isSubmitting, setIsSubmitting] = useState(false);
+  const [errorMsg, setErrorMsg] = useState('');
+
+  // Fetch eligible assignees whenever modal opens
+  useEffect(() => {
+    if (isOpen && projectCode) {
+      setLoadingAssignees(true);
+      getAssignees(projectCode)
+        .then(data => {
+          setAssigneesList(data || []);
+          if (data && data.length > 0) {
+            setAssigneeEmail(data[0].email);
+          }
+        })
+        .finally(() => setLoadingAssignees(false));
+    }
+  }, [isOpen, projectCode]);
 
   if (!isOpen) return null;
 
-  const currentProject = projects.find(p => p.id === projectId);
-  const availableMembers = currentProject?.members || [currentUser.name];
-
-  const handleSubmit = (e) => {
+  const handleSubmit = async (e) => {
     e.preventDefault();
     if (!title.trim()) return;
 
-    addTask({
-      projectId,
-      title: title.trim(),
-      membername: membername || availableMembers[0] || currentUser.name,
-      duedate: duedate || '2026-08-30'
-      // status is automatically TODO by contract
-    });
+    try {
+      setIsSubmitting(true);
+      setErrorMsg('');
 
-    setTitle('');
-    setMembername('');
-    setDuedate('');
-    onClose();
+      await addTask(projectCode, {
+        title: title.trim(),
+        description: description.trim(),
+        assignee_email: assigneeEmail || null,
+        due_date: dueDate || null
+      });
+
+      setTitle('');
+      setDescription('');
+      setDueDate('');
+      onClose();
+    } catch (err) {
+      const serverErr = err.response?.data;
+      const message =
+        serverErr?.title?.[0] ||
+        serverErr?.assignee_email?.[0] ||
+        serverErr?.message ||
+        'Failed to add task.';
+      setErrorMsg(message);
+    } finally {
+      setIsSubmitting(false);
+    }
   };
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/75 backdrop-blur-xs p-4">
-      <div className="bg-[#0e1915] border border-[#1b2f28] rounded-2xl w-full max-w-md p-6 shadow-2xl space-y-5 animate-in zoom-in-95 duration-150">
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/75 backdrop-blur-xs p-3 sm:p-4">
+      <div className="bg-[#0e1915] border border-[#1b2f28] rounded-2xl w-full max-w-md p-4 sm:p-6 shadow-2xl space-y-4 sm:space-y-5 animate-in zoom-in-95 duration-150 max-h-[90vh] overflow-y-auto">
         {/* Header */}
         <div className="flex items-center justify-between">
           <div className="flex items-center gap-2 text-white">
@@ -47,6 +78,12 @@ const NewTaskModal = ({ isOpen, onClose, projectId }) => {
             <X className="w-5 h-5" />
           </button>
         </div>
+
+        {errorMsg && (
+          <div className="p-3 bg-red-950/40 border border-red-800/60 rounded-xl text-red-300 text-xs">
+            {errorMsg}
+          </div>
+        )}
 
         <form onSubmit={handleSubmit} className="space-y-4">
           {/* Task Title with 150 char limit */}
@@ -65,52 +102,84 @@ const NewTaskModal = ({ isOpen, onClose, projectId }) => {
               maxLength={150}
               value={title}
               onChange={(e) => setTitle(e.target.value)}
-              placeholder="e.g. Fix mobile navigation header overflow"
+              placeholder="e.g. Design hero section wireframes"
               className="w-full bg-[#12211c] border border-[#1f372f] focus:border-[#10b981] rounded-xl px-3.5 py-2.5 text-sm text-white placeholder-[#587369] outline-none transition-all"
             />
           </div>
 
-          {/* Assignee Dropdown (Strictly project members) */}
+          {/* Description */}
           <div>
-            <label className="text-xs font-medium text-[#8ca398] block mb-1.5 flex items-center gap-1">
-              <UserCheck className="w-3.5 h-3.5" /> Assign To Project Member
+            <label className="text-xs font-medium text-[#8ca398] block mb-1.5">
+              Description (Optional)
             </label>
-            <select
-              value={membername}
-              onChange={(e) => setMembername(e.target.value)}
-              className="w-full bg-[#12211c] border border-[#1f372f] focus:border-[#10b981] rounded-xl px-3.5 py-2.5 text-sm text-white outline-none cursor-pointer"
-            >
-              <option value="">Select Assignee</option>
-              {availableMembers.map((m, idx) => (
-                <option key={idx} value={m}>
-                  {m}
-                </option>
-              ))}
-            </select>
-          </div>
-
-          {/* Due Date: Native Calendar Picker */}
-          <div>
-            <label className="text-xs font-medium text-[#8ca398] block mb-1.5 flex items-center gap-1">
-              <Calendar className="w-3.5 h-3.5" /> Due Date (Calendar)
-            </label>
-            <input
-              type="date"
-              value={duedate}
-              onChange={(e) => setDuedate(e.target.value)}
-              className="w-full bg-[#12211c] border border-[#1f372f] focus:border-[#10b981] rounded-xl px-3.5 py-2.5 text-sm text-white outline-none cursor-pointer [color-scheme:dark]"
+            <textarea
+              rows={2}
+              maxLength={300}
+              value={description}
+              onChange={(e) => setDescription(e.target.value)}
+              placeholder="Add extra context or instructions..."
+              className="w-full bg-[#12211c] border border-[#1f372f] focus:border-[#10b981] rounded-xl px-3.5 py-2.5 text-sm text-white placeholder-[#587369] outline-none resize-none transition-all"
             />
           </div>
 
-          {/* Initial Status indicator (locked to TODO) */}
-          <div className="flex items-center justify-between p-3 bg-[#0a1310] border border-[#162721] rounded-xl text-xs text-[#7e998e]">
-            <span>Initial Column:</span>
-            <span className="font-mono font-bold text-slate-300 bg-[#162822] px-2 py-0.5 rounded border border-slate-600">
-              TODO
-            </span>
+          {/* Single Assignee Selection (Scoped strictly to this project's members) */}
+          <div>
+            <label className="text-xs font-medium text-[#8ca398] block mb-1.5">
+              Assignee
+            </label>
+            <div className="relative">
+              <select
+                value={assigneeEmail}
+                onChange={(e) => setAssigneeEmail(e.target.value)}
+                disabled={loadingAssignees}
+                className="w-full bg-[#12211c] border border-[#1f372f] focus:border-[#10b981] rounded-xl px-3.5 py-2.5 text-sm text-white outline-none appearance-none transition-all cursor-pointer"
+              >
+                {loadingAssignees ? (
+                  <option value="">Loading members...</option>
+                ) : assigneesList.length === 0 ? (
+                  <option value="">No members invited yet</option>
+                ) : (
+                  assigneesList.map((option, idx) => (
+                    <option key={idx} value={option.email} className="bg-[#0e1915] text-white">
+                      {option.name} ({option.email}) [{option.status}]
+                    </option>
+                  ))
+                )}
+              </select>
+              <div className="absolute right-3 top-1/2 -translate-y-1/2 pointer-events-none text-[#6e857c]">
+                <UserCheck className="w-4 h-4" />
+              </div>
+            </div>
+            <p className="text-[11px] text-[#5d776d] mt-1">
+              Strictly 1 assignee per task from this project's team.
+            </p>
           </div>
 
-          {/* Actions */}
+          {/* Due Date Picker */}
+          <div>
+            <label className="text-xs font-medium text-[#8ca398] block mb-1.5">
+              Due Date
+            </label>
+            <div className="relative">
+              <input
+                type="date"
+                value={dueDate}
+                onChange={(e) => setDueDate(e.target.value)}
+                className="w-full bg-[#12211c] border border-[#1f372f] focus:border-[#10b981] rounded-xl px-3.5 py-2.5 text-sm text-white outline-none transition-all cursor-pointer"
+              />
+              <div className="absolute right-3 top-1/2 -translate-y-1/2 pointer-events-none text-[#6e857c]">
+                <Calendar className="w-4 h-4" />
+              </div>
+            </div>
+          </div>
+
+          {/* Initial Status Note */}
+          <div className="text-[11px] font-mono text-[#6e857c] bg-[#0a1310] border border-[#162721] p-2.5 rounded-lg flex items-center justify-between">
+            <span>INITIAL STATUS:</span>
+            <span className="text-[#34d399] font-bold">TODO</span>
+          </div>
+
+          {/* Action Buttons */}
           <div className="flex items-center justify-end gap-2.5 pt-2">
             <button
               type="button"
@@ -121,9 +190,10 @@ const NewTaskModal = ({ isOpen, onClose, projectId }) => {
             </button>
             <button
               type="submit"
-              className="px-4 py-2.5 text-xs font-semibold bg-[#10b981] hover:bg-[#059669] text-black rounded-xl transition-all shadow-md active:scale-[0.98]"
+              disabled={isSubmitting}
+              className="px-4 py-2.5 text-xs font-semibold bg-[#10b981] hover:bg-[#059669] disabled:opacity-50 text-black rounded-xl transition-all shadow-md active:scale-[0.98]"
             >
-              Add Task
+              {isSubmitting ? 'Adding...' : 'Add Task'}
             </button>
           </div>
         </form>
